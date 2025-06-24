@@ -30,11 +30,90 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import hydra
+import logging
+import os
+from datetime import datetime
+
+    # noinspection PyUnresolvedReferences
+import isaacgym
+from isaacgymenvs.pbt.pbt import PbtAlgoObserver, initial_pbt_check
+from isaacgymenvs.utils.rlgames_utils import multi_gpu_get_rank
+from hydra.utils import to_absolute_path
+from isaacgymenvs.tasks import isaacgym_task_map
+import gym
+from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
+from isaacgymenvs.utils.utils import set_np_formatting, set_seed
+
+
+
+from isaacgymenvs.utils.rlgames_utils import RLGPUEnv, RLGPUAlgoObserver, MultiObserver, ComplexObsRLGPUEnv
+from isaacgymenvs.utils.wandb_utils import WandbAlgoObserver
+from rl_games.common import env_configurations, vecenv
+from rl_games.torch_runner import Runner
+from rl_games.algos_torch import model_builder
+from isaacgymenvs.learning import amp_continuous
+from isaacgymenvs.learning import amp_players
+from isaacgymenvs.learning import amp_models
+from isaacgymenvs.learning import amp_network_builder
+import isaacgymenvs
 
 from omegaconf import DictConfig, OmegaConf
 from omegaconf import DictConfig, OmegaConf
 
+import rl_games.algos_torch.models as _models
+import torch
+import torch.nn.functional as F
+from torch.distributions import Normal
+def _patch_a2c_continuous(cls, is_logstd: bool):
+    """
+    cls: either ModelA2CContinuous or ModelA2CContinuousLogStd
+    is_logstd: False=> raw_sigma; True=> logstd
+    """
+    orig_forward = cls.Network.forward
+    def forward(self, input_dict):
+        is_train     = input_dict.get('is_train', True)
+        prev_actions = input_dict.get('prev_actions', None)
+        # normalize obs
+        input_dict['obs'] = self.norm_obs(input_dict['obs'])
+        # call original network to get mu and sigma-raw or logstd
+        mu, sd_raw, value, states = self.a2c_network(input_dict)
+        # clamp to positive
+        if is_logstd:
+            sigma = torch.exp(sd_raw).clamp(min=1e-6)
+        else:
+            sigma = F.softplus(sd_raw).clamp(min=1e-6)
+        # build distribution & precompute entropy
+        distr   = Normal(mu, sigma, validate_args=False)
+        entropy = distr.entropy().sum(dim=-1)
 
+        if is_train:
+            prev_nlp = -distr.log_prob(prev_actions).sum(dim=-1)
+            return {
+                'prev_neglogp': torch.squeeze(prev_nlp),
+                'value'      : value,
+                'entropy'    : entropy,
+                'rnn_states' : states,
+                'mus'        : mu,
+                'sigmas'     : sigma
+            }
+        else:
+            action = distr.sample().squeeze()
+            nlp    = -distr.log_prob(action).sum(dim=-1)
+            return {
+                'neglogpacs': torch.squeeze(nlp),
+                'values'    : self.denorm_value(value),
+                'actions'   : action,
+                'entropy'   : entropy,
+                'rnn_states': states,
+                'mus'       : mu,
+                'sigmas'    : sigma
+            }
+
+    cls.Network.forward = forward
+
+# apply patch to both continuous builders
+# 自动生成 run_name（可加时间戳避免覆盖）
+run_name = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 def preprocess_train_config(cfg, config_dict):
     """
     Adding common configuration parameters to the rl_games train config.
@@ -71,37 +150,9 @@ def preprocess_train_config(cfg, config_dict):
 @hydra.main(version_base="1.1", config_name="config", config_path="./cfg")
 def launch_rlg_hydra(cfg: DictConfig):
 
-    import logging
-    import os
-    from datetime import datetime
+    
 
-    # noinspection PyUnresolvedReferences
-    import isaacgym
-    from isaacgymenvs.pbt.pbt import PbtAlgoObserver, initial_pbt_check
-    from isaacgymenvs.utils.rlgames_utils import multi_gpu_get_rank
-    from hydra.utils import to_absolute_path
-    from isaacgymenvs.tasks import isaacgym_task_map
-    import gym
-    from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
-    from isaacgymenvs.utils.utils import set_np_formatting, set_seed
-
-    if cfg.pbt.enabled:
-        initial_pbt_check(cfg)
-
-    from isaacgymenvs.utils.rlgames_utils import RLGPUEnv, RLGPUAlgoObserver, MultiObserver, ComplexObsRLGPUEnv
-    from isaacgymenvs.utils.wandb_utils import WandbAlgoObserver
-    from rl_games.common import env_configurations, vecenv
-    from rl_games.torch_runner import Runner
-    from rl_games.algos_torch import model_builder
-    from isaacgymenvs.learning import amp_continuous
-    from isaacgymenvs.learning import amp_players
-    from isaacgymenvs.learning import amp_models
-    from isaacgymenvs.learning import amp_network_builder
-    import isaacgymenvs
-
-
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    run_name = f"{cfg.wandb_name}_{time_str}"
+  
 
     # ensure checkpoints can be specified as relative paths
     if cfg.checkpoint:
@@ -134,6 +185,9 @@ def launch_rlg_hydra(cfg: DictConfig):
             cfg,
             **kwargs,
         )
+        #print("===========================================================")    
+        #print("SIM_DEVICE =", cfg["sim_device"], type(cfg["sim_device"]))
+        
         if cfg.capture_video:
             envs.is_vector_env = True
             envs = gym.wrappers.RecordVideo(
@@ -142,6 +196,7 @@ def launch_rlg_hydra(cfg: DictConfig):
                 step_trigger=lambda step: step % cfg.capture_video_freq == 0,
                 video_length=cfg.capture_video_len,
             )
+        
         return envs
 
     env_configurations.register('rlgpu', {

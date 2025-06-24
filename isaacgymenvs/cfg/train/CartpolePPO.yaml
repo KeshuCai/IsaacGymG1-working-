@@ -1,68 +1,75 @@
+# Path: isaacgymenvs/cfg/train/G1WalkTaskPPO.yaml
+
+# training‐specific params
 params:
-  seed: ${...seed}
-
-  algo:
-    name: a2c_continuous
-
-  model:
-    name: continuous_a2c_logstd
-
-  network:
-    name: actor_critic
-    separate: False
-    space:
-      continuous:
-        mu_activation: None
-        sigma_activation: None
-
-        mu_init:
-          name: default
-        sigma_init:
-          name: const_initializer
-          val: 0
-        fixed_sigma: True
-    mlp:
-      units: [32, 32]
-      activation: elu
-      
-      initializer:
-        name: default
-      regularizer:
-        name: None
-
-  load_checkpoint: ${if:${...checkpoint},True,False} # flag which sets whether to load the checkpoint
-  load_path: ${...checkpoint} # path to the checkpoint to load
-
   config:
-    name: ${resolve_default:Cartpole,${....experiment}}
-    full_experiment_name: ${.name}
-    env_name: rlgpu
-    multi_gpu: ${....multi_gpu}
-    ppo: True
-    mixed_precision: False
-    normalize_input: True
-    normalize_value: True
-    num_actors: ${....task.env.numEnvs}
-    reward_shaper:
-      scale_value: 0.1
-    normalize_advantage: True
-    gamma: 0.99
-    tau: 0.95
-    learning_rate: 3e-4
-    lr_schedule: adaptive
-    kl_threshold: 0.008
-    score_to_win: 20000
-    max_epochs: ${resolve_default:100,${....max_iterations}}
-    save_best_after: 50
-    save_frequency: 25
-    grad_norm: 1.0
-    entropy_coef: 0.0
-    truncate_grads: True
-    e_clip: 0.2
-    horizon_length: 16
-    minibatch_size: 8192
-    mini_epochs: 8
-    critic_coef: 4
-    clip_value: True
-    seq_len: 4
-    bounds_loss_coef: 0.0001
+    name: G1WalkTaskPPO
+    max_epochs: 2000
+
+# this must be a literal string at the root so cfg.wandb_name works
+wandb_name: G1WalkTaskPPO
+
+# simulation settings
+sim:
+  dt: 0.0166
+  substeps: 1
+  up_axis: "z"
+  use_gpu_pipeline: true
+  physx:
+    num_threads: 4
+    solver_type: 1
+    use_gpu: true
+    num_position_iterations: 4
+    num_velocity_iterations: 1
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0
+    default_buffer_size_multiplier: 5.0
+    contact_collection: 2
+
+# robot asset, must match the task’s assetRoot+assetFileName
+asset:
+  flip_visual_attachments: false
+  fix_base_link: false
+  default_dof_drive_mode: 1
+
+# env repeated in train config is OK
+env:
+  numEnvs: 1024
+  envSpacing: 2.5
+  episodeLength: 1000
+  assetRoot: "/home/kc/IsaacGymEnvs/assets/mjcf/g1_description"
+  assetFile: "g1_29dof_lock_waist_with_hand_rev_1_0.xml"
+randomize: false
+
+# PPO hyperparameters
+ppo:
+  entropy_coef: 0.01
+  learning_rate: 3e-4
+  gamma: 0.99
+  lam: 0.95
+  clip_param: 0.2
+  num_learning_epochs: 5
+  num_mini_batches: 4
+  value_loss_coef: 2.0
+  use_clipped_value_loss: true
+  use_gae: true
+  schedule: adaptive
+  hidden_dims: [256, 128]
+  kl_target: 0.02
+  kl_coef: 1.0
+
+# runner specs
+runner:
+  policy_class_name: ActorCritic
+  algorithm_class_name: PPO
+  num_steps_per_env: 32
+  max_iterations: 2000
+  save_interval: 200
+  experiment_name: G1_Training
+  run_name: baseline_ppo
+  resume: false
+  checkpoint: -1
+  device: cuda
+  log_interval: 10

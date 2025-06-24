@@ -75,6 +75,13 @@ class Env(ABC):
             headless: Set to False to disable viewer rendering.
         """
 
+
+        
+        
+        if sim_device ==0:
+            sim_device = 'cuda:0'
+        #print('====================')
+        #print("SIM_DEVICE =", sim_device, type(sim_device))
         split_device = sim_device.split(":")
         self.device_type = split_device[0]
         self.device_id = int(split_device[1]) if len(split_device) > 1 else 0
@@ -108,8 +115,9 @@ class Env(ABC):
         self.state_space = spaces.Box(np.ones(self.num_states) * -np.Inf, np.ones(self.num_states) * np.Inf)
 
         self.num_actions = config["env"]["numActions"]
-        self.control_freq_inv = config["env"].get("controlFrequencyInv", 1)
-
+        self.control_freq_inv = config["env"].get("controlFrequencyInv", 4)
+        print("44444444444444444444444444444444444")
+        print(self.control_freq_inv)
         self.act_space = spaces.Box(np.ones(self.num_actions) * -1., np.ones(self.num_actions) * 1.)
 
         self.clip_obs = config["env"].get("clipObservations", np.Inf)
@@ -275,6 +283,7 @@ class VecTask(Env):
         self.viewer = None
 
         # if running with a viewer, set up keyboard shortcuts and camera
+      
         if self.headless == False:
             # subscribe to keyboard shortcuts
             self.viewer = self.gym.create_viewer(
@@ -285,7 +294,7 @@ class VecTask(Env):
                 self.viewer, gymapi.KEY_V, "toggle_viewer_sync")
             self.gym.subscribe_viewer_keyboard_event(
                 self.viewer, gymapi.KEY_R, "record_frames")
-
+           
             # set the camera position based on up axis
             sim_params = self.gym.get_sim_params(self.sim)
             if sim_params.up_axis == gymapi.UP_AXIS_Z:

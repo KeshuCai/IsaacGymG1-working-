@@ -141,6 +141,7 @@ class Humanoid(VecTask):
 
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../assets')
         asset_file = "mjcf/nv_humanoid.xml"
+        #asset_file="mjcf/g1_description/g1_29dof_lock_waist_with_hand_rev_1_0.xml"
 
         if "asset" in self.cfg["env"]:
             asset_file = self.cfg["env"]["asset"].get("assetFileName", asset_file)
