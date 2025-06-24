@@ -67,7 +67,13 @@ Here's another example - Ant locomotion:
 ```bash
 python train.py task=Ant
 ```
-
+Use
+```bash
+python train.py task=g1_robot
+```
+To train G1 robot in the environment. 
+Future work:
+Adjust the reward and the number of environment
 Note that by default we show a preview window, which will usually slow down training. You 
 can use the `v` key while running to disable viewer updates and allow training to proceed 
 faster. Hit the `v` key again to resume viewing after a few seconds of training, once the 
